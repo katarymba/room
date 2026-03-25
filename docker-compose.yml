@@ -41,8 +41,6 @@ services:
         condition: service_healthy
     networks:
       - room_network
-    volumes:
-      - ./backend:/app
 
   pgadmin:
     image: dpage/pgadmin4:latest

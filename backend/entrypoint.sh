@@ -5,7 +5,7 @@ set -e
 # Wait until PostgreSQL is ready to accept connections
 # ---------------------------------------------------------------------------
 echo "Waiting for PostgreSQL..."
-until nc -z "${POSTGRES_HOST:-postgres}" "${POSTGRES_PORT:-5432}"; do
+until nc -z postgres 5432; do
   echo "  postgres is unavailable — sleeping 1s"
   sleep 1
 done
