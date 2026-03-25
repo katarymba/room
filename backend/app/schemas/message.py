@@ -45,6 +45,10 @@ class MessageResponse(BaseModel):
     created_at: datetime
     reaction_count: Optional[int] = 0
     user_has_reacted: Optional[bool] = False
+    # Mystery mode fields
+    is_mystery: bool = True
+    author_revealed: bool = False
+    author_username: Optional[str] = None
 
     class Config:
         from_attributes = True

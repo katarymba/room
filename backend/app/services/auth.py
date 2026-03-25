@@ -37,6 +37,14 @@ def decode_access_token(token: str) -> dict:
         )
 
 
+def decode_token(token: str) -> Optional[dict]:
+    """Decode a JWT token and return its payload, or *None* if invalid/expired."""
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),

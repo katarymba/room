@@ -8,7 +8,7 @@
     },
     "allowJs": true,
     "jsx": "react-native",
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM"],
     "moduleResolution": "bundler",
     "noEmit": true,
     "resolveJsonModule": true,

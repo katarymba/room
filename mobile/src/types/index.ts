@@ -22,6 +22,12 @@ export interface Message {
   created_at: string;
   reaction_count: number;
   user_has_reacted: boolean;
+  /** Mystery mode — author is hidden until revealed. */
+  is_mystery: boolean;
+  /** Whether the author has been revealed to the current user. */
+  author_revealed: boolean;
+  /** Author identifier (only set when author_revealed is true). */
+  author_username?: string;
 }
 
 // ─── Reactions ───────────────────────────────────────────────────────────────

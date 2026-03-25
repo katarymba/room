@@ -110,6 +110,9 @@ Get anonymous messages from the current room.
 
 **Query params:** `latitude`, `longitude`, `radius_meters`, `limit` (1–100, default 50)
 
+When fewer than 3 real messages exist the response is supplemented with bot
+messages so the room never appears empty.
+
 **Response `200`:**
 ```json
 [
@@ -118,10 +121,20 @@ Get anonymous messages from the current room.
     "text": "Hello from nearby!",
     "created_at": "2024-01-01T12:00:00",
     "reaction_count": 3,
-    "user_has_reacted": false
+    "user_has_reacted": false,
+    "is_mystery": true,
+    "author_revealed": false,
+    "author_username": null
   }
 ]
 ```
+
+`author_revealed` is `true` when:
+- The current user is the author.
+- Both users have reacted to each other's messages (mutual reaction).
+- The message is older than 24 hours.
+
+When `author_revealed` is `true` and an `author_username` is available it contains the author's phone number or device ID.
 
 ---
 
@@ -134,7 +147,10 @@ Post an anonymous message to the room.
 { "text": "Hello!", "latitude": 55.75, "longitude": 37.62 }
 ```
 
-**Response `201`:** Message object (same shape as above).
+**Response `201`:** Message object (same shape as GET /room/messages items).
+
+After the message is saved a `message_new` event is broadcast via WebSocket to
+all users within the same radius.
 
 ---
 
@@ -236,3 +252,89 @@ All errors follow this shape:
 | 409    | Conflict (duplicate resource) |
 | 422    | Unprocessable entity (Pydantic validation failed) |
 | 500    | Internal server error         |
+
+---
+
+## WebSocket Endpoint
+
+Base URL: `ws://localhost:8000/ws`
+
+### GET /ws/room
+
+Real-time bidirectional connection for room events.
+
+**Authentication:** Pass the JWT as a query parameter.
+
+**Connection URL:**
+```
+ws://localhost:8000/ws/room?token=<jwt>&latitude=55.75&longitude=37.62
+```
+
+| Query param  | Required | Description                          |
+|--------------|----------|--------------------------------------|
+| `token`      | ✅       | JWT access token                     |
+| `latitude`   | ❌       | Initial latitude (decimal degrees)   |
+| `longitude`  | ❌       | Initial longitude (decimal degrees)  |
+
+**Close codes:**
+- `4001` — authentication failed / invalid token
+
+---
+
+### Client → Server messages
+
+```json
+{ "type": "location_update", "latitude": 55.75, "longitude": 37.62 }
+```
+Update the current user's location so geo-filtered broadcasts work correctly.
+
+```json
+{ "type": "pong" }
+```
+Response to a server-initiated `ping`.
+
+---
+
+### Server → Client events
+
+#### `message_new`
+A new message was posted within the user's radius.
+```json
+{
+  "type": "message_new",
+  "data": {
+    "id": "uuid",
+    "text": "Hello!",
+    "created_at": "2024-01-01T12:00:00",
+    "reaction_count": 0,
+    "user_has_reacted": false,
+    "is_mystery": true,
+    "author_revealed": false,
+    "author_username": null
+  }
+}
+```
+
+#### `reaction_added`
+A reaction was added to a message within the user's radius.
+```json
+{
+  "type": "reaction_added",
+  "data": { "message_id": "uuid", "new_count": 5 }
+}
+```
+
+#### `nearby_count_changed`
+The number of connected users in the area changed.
+```json
+{
+  "type": "nearby_count_changed",
+  "data": { "count": 3 }
+}
+```
+
+#### `ping`
+Keep-alive ping sent every 30 seconds. Respond with `{"type": "pong"}`.
+```json
+{ "type": "ping" }
+```

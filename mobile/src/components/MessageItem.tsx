@@ -12,6 +12,7 @@ interface MessageItemProps {
 /**
  * A single message bubble shown in the Room.
  * Displays the message text, creation time, reaction count, and a like button.
+ * When mystery mode is active the author is hidden until revealed.
  */
 export function MessageItem({ message }: MessageItemProps) {
   const updateMessage = useMessagesStore((state) => state.updateMessage);
@@ -38,8 +39,20 @@ export function MessageItem({ message }: MessageItemProps) {
     minute: '2-digit',
   });
 
+  const authorLabel =
+    message.is_mystery && !message.author_revealed
+      ? '🎭 Mystery'
+      : message.author_revealed && message.author_username
+        ? `✨ ${message.author_username}`
+        : null;
+
   return (
     <View style={styles.container}>
+      {authorLabel !== null && (
+        <Text style={[styles.author, message.author_revealed && styles.authorRevealed]}>
+          {authorLabel}
+        </Text>
+      )}
       <Text style={styles.text}>{message.text}</Text>
       <View style={styles.footer}>
         <Text style={styles.time}>{timeLabel}</Text>
@@ -64,6 +77,14 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     borderColor: COLORS.border,
     borderWidth: 1,
+  },
+  author: {
+    ...TYPOGRAPHY.small,
+    color: COLORS.textMuted,
+    marginBottom: 4,
+  },
+  authorRevealed: {
+    color: COLORS.primary,
   },
   text: {
     ...TYPOGRAPHY.body,
