@@ -1,0 +1,18 @@
+version: '3.8'
+
+# Development overrides — use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"   # Expose DB port for local tools (DBeaver, pgAdmin desktop)
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./backend:/app   # Hot reload — changes reflected without rebuild
+    environment:
+      DEBUG: "true"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
