@@ -1,8 +1,9 @@
 """Room router — nearby users and messages endpoints."""
+import asyncio
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -12,9 +13,14 @@ from app.models.reaction import Reaction
 from app.schemas.message import MessageCreate, MessageResponse, NearbyMessagesRequest
 from app.schemas.reaction import ReactionCreate, ReactionResponse
 from app.services.auth import get_current_user
+from app.services.bot_messages import generate_fake_messages
 from app.services.geo import get_nearby_messages, get_nearby_user_count
+from app.services.room_service import check_author_reveal
 
 router = APIRouter()
+
+# Supplement with bot messages when real messages fall below this threshold
+_MIN_MESSAGES = 3
 
 
 @router.get("/nearby/users", response_model=dict)
@@ -51,6 +57,10 @@ async def get_room_messages(
             .first()
             is not None
         )
+        revealed = check_author_reveal(db, msg, current_user.id)
+        author_username: Optional[str] = None
+        if revealed and msg.user:
+            author_username = msg.user.phone or msg.user.device_id
         result.append(
             MessageResponse(
                 id=msg.id,
@@ -58,13 +68,24 @@ async def get_room_messages(
                 created_at=msg.created_at,
                 reaction_count=reaction_count,
                 user_has_reacted=user_reacted,
+                is_mystery=msg.is_mystery,
+                author_revealed=revealed,
+                author_username=author_username,
             )
         )
+
+    # UX bootstrap: supplement with bot messages when there are too few real ones
+    if len(result) < _MIN_MESSAGES:
+        fake_count = _MIN_MESSAGES - len(result)
+        fake_messages = generate_fake_messages(fake_count, latitude, longitude)
+        result += fake_messages
+
     return result
 
 
 @router.post("/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 async def post_room_message(
+    request: Request,
     message_data: MessageCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -83,17 +104,36 @@ async def post_room_message(
     db.commit()
     db.refresh(message)
 
-    return MessageResponse(
+    response = MessageResponse(
         id=message.id,
         text=message.text,
         created_at=message.created_at,
         reaction_count=0,
         user_has_reacted=False,
+        is_mystery=message.is_mystery,
+        author_revealed=True,  # sender always knows their own message
+        author_username=None,
     )
+
+    # Broadcast to nearby WebSocket clients
+    ws_manager = getattr(request.app.state, "ws_manager", None)
+    if ws_manager is not None:
+        event = {"type": "message_new", "data": response.model_dump(mode="json")}
+        asyncio.create_task(
+            ws_manager.broadcast_to_nearby(
+                event,
+                message_data.latitude,
+                message_data.longitude,
+                radius_meters=100,
+            )
+        )
+
+    return response
 
 
 @router.post("/reactions", response_model=ReactionResponse, status_code=status.HTTP_201_CREATED)
 async def add_reaction(
+    request: Request,
     reaction_data: ReactionCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -102,6 +142,10 @@ async def add_reaction(
     message = db.query(Message).filter(Message.id == reaction_data.message_id).first()
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    # Silently ignore reactions on bot messages — they have no DB record.
+    # (Bot message UUIDs are random and won't match any DB row, so the 404
+    # above already handles it; this comment documents intent.)
 
     # Check if reaction already exists
     existing = (
@@ -124,6 +168,31 @@ async def add_reaction(
     db.add(reaction)
     db.commit()
     db.refresh(reaction)
+
+    # Broadcast reaction update to nearby WebSocket clients
+    new_count = db.query(Reaction).filter(Reaction.message_id == reaction_data.message_id).count()
+    ws_manager = getattr(request.app.state, "ws_manager", None)
+    if ws_manager is not None:
+        from geoalchemy2.shape import to_shape
+
+        try:
+            point = to_shape(message.location)
+            msg_lat, msg_lng = point.y, point.x
+        except Exception:
+            msg_lat, msg_lng = None, None
+
+        if msg_lat is not None:
+            event = {
+                "type": "reaction_added",
+                "data": {
+                    "message_id": str(reaction_data.message_id),
+                    "new_count": new_count,
+                },
+            }
+            asyncio.create_task(
+                ws_manager.broadcast_to_nearby(event, msg_lat, msg_lng, radius_meters=100)
+            )
+
     return reaction
 
 
@@ -149,3 +218,4 @@ async def remove_reaction(
 
     db.delete(reaction)
     db.commit()
+

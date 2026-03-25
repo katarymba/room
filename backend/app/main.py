@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import auth, room, chat, location
+from app.routers import websocket as ws_router
+from app.websocket.manager import ConnectionManager
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -12,6 +14,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Global WebSocket connection manager (in-memory for MVP)
+app.state.ws_manager = ConnectionManager()
 
 # Configure CORS
 app.add_middleware(
@@ -27,6 +32,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(room.router, prefix="/api/room", tags=["Room"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(location.router, prefix="/api/location", tags=["Location"])
+app.include_router(ws_router.router, prefix="/ws", tags=["WebSocket"])
 
 
 @app.get("/", tags=["Health"])

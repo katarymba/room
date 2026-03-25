@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,14 @@ import {
 } from 'react-native';
 import { UserCounter } from '@/components/UserCounter';
 import { MessageItem } from '@/components/MessageItem';
+import { MessageSkeleton } from '@/components/MessageSkeleton';
 import { useMessages } from '@/hooks/useMessages';
 import { useLocation } from '@/hooks/useLocation';
 import { useMessagesStore } from '@/store/messagesStore';
 import { COLORS, TYPOGRAPHY } from '@/utils/theme';
+
+// Minimum time to show the shimmer skeleton (improves perceived experience)
+const MIN_SKELETON_MS = 1500;
 
 /**
  * Room screen — main screen showing nearby anonymous messages.
@@ -28,6 +32,19 @@ export function RoomScreen() {
   const { messages, loading, sendMessage, refresh } = useMessages();
   const nearbyCount = useMessagesStore((state) => state.nearbyCount);
 
+  // Show skeleton for at least MIN_SKELETON_MS on first load
+  const [showSkeleton, setShowSkeleton] = useState(true);
+  const skeletonTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    skeletonTimerRef.current = setTimeout(() => {
+      setShowSkeleton(false);
+    }, MIN_SKELETON_MS) as unknown as number;
+    return () => {
+      if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
+    };
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || !location) return;
@@ -35,6 +52,8 @@ export function RoomScreen() {
     await sendMessage(text);
     setInputText('');
   }, [inputText, location, sendMessage]);
+
+  const isInitialLoad = showSkeleton && messages.length === 0;
 
   return (
     <KeyboardAvoidingView
@@ -48,28 +67,26 @@ export function RoomScreen() {
         <UserCounter count={nearbyCount} />
       </View>
 
-      {/* Messages list */}
-      <FlatList
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <MessageItem message={item} />}
-        contentContainerStyle={styles.list}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={refresh}
-            tintColor={COLORS.primary}
-          />
-        }
-        inverted
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {loading ? 'Loading...' : 'No messages nearby. Be the first to say something! 👋'}
-            </Text>
-          </View>
-        }
-      />
+      {/* Skeleton loading state */}
+      {isInitialLoad ? (
+        <MessageSkeleton />
+      ) : (
+        /* Messages list */
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <MessageItem message={item} />}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={refresh}
+              tintColor={COLORS.primary}
+            />
+          }
+          inverted
+        />
+      )}
 
       {/* Input bar */}
       <View style={styles.inputBar}>
@@ -120,17 +137,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     flexGrow: 1,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textMuted,
-    textAlign: 'center',
-    lineHeight: 24,
   },
   inputBar: {
     flexDirection: 'row',
