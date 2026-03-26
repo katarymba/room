@@ -7,6 +7,10 @@ services:
     ports:
       - "5432:5432"   # Expose DB port for local tools (DBeaver, pgAdmin desktop)
 
+  redis:
+    ports:
+      - "6379:6379"   # Expose Redis port for local inspection
+
   backend:
     build:
       context: ./backend

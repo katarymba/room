@@ -1,4 +1,5 @@
 """Authentication service — JWT token generation and validation."""
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -43,6 +44,65 @@ def decode_token(token: str) -> Optional[dict]:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
+
+
+def create_refresh_token_value() -> str:
+    """Generate a cryptographically secure random refresh token string."""
+    return secrets.token_urlsafe(64)
+
+
+def issue_refresh_token(db: Session, user_id: UUID) -> str:
+    """Create a new refresh token record in the DB and return the token string."""
+    from app.models.refresh_token import RefreshToken
+
+    token_value = create_refresh_token_value()
+    expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh_token = RefreshToken(
+        user_id=user_id,
+        token=token_value,
+        expires_at=expires_at,
+    )
+    db.add(refresh_token)
+    db.commit()
+    return token_value
+
+
+def verify_refresh_token(db: Session, token_value: str):
+    """Validate a refresh token and return the associated RefreshToken record.
+
+    Returns the RefreshToken row if valid, or raises HTTPException.
+    """
+    from app.models.refresh_token import RefreshToken
+
+    record = db.query(RefreshToken).filter(RefreshToken.token == token_value).first()
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    if record.revoked:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+    if record.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has expired",
+        )
+    return record
+
+
+def revoke_refresh_token(db: Session, token_value: str) -> bool:
+    """Mark a single refresh token as revoked. Returns True if found."""
+    from app.models.refresh_token import RefreshToken
+
+    record = db.query(RefreshToken).filter(RefreshToken.token == token_value).first()
+    if record and not record.revoked:
+        record.revoked = True
+        db.commit()
+        return True
+    return False
 
 
 def get_current_user(
