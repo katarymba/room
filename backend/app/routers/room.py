@@ -1,6 +1,7 @@
 """Room router — nearby users and messages endpoints."""
 import asyncio
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import List, Optional
 from uuid import UUID
 
@@ -20,6 +21,8 @@ from app.services.rate_limiter import check_rate_limit
 from app.services.room_service import check_author_reveal
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # Supplement with bot messages when real messages fall below this threshold
 _MIN_MESSAGES = 3
@@ -93,16 +96,13 @@ async def post_room_message(
     current_user: User = Depends(get_current_user),
 ):
     """Post an anonymous message to the room."""
-    import logging
     from geoalchemy2.shape import from_shape
     from shapely.geometry import Point
-
-    _log = logging.getLogger(__name__)
 
     # ── Short-window anti-spam rate limit (5 msgs / 10 sec) ──────────────────
     allowed_short, _ = check_rate_limit(str(current_user.id), "any", "messages_per_10s")
     if not allowed_short:
-        _log.warning("Message short-window rate limit exceeded for user %s", current_user.id)
+        logger.warning("Message short-window rate limit exceeded for user %s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
@@ -125,7 +125,6 @@ async def post_room_message(
         )
 
     # ── Anti-spam: duplicate message detection within 1 minute ───────────────
-    from datetime import datetime, timedelta
     one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
     duplicate = (
         db.query(Message)
@@ -137,7 +136,7 @@ async def post_room_message(
         .first()
     )
     if duplicate:
-        _log.warning("Duplicate message attempt from user %s", current_user.id)
+        logger.warning("Duplicate message attempt from user %s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
