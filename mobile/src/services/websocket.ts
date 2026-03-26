@@ -4,6 +4,12 @@
  * Manages a persistent connection to the backend `/ws/room` endpoint,
  * handles automatic reconnect with exponential back-off, and dispatches
  * incoming server events to registered listeners.
+ *
+ * Authentication flow (message-based):
+ *   1. Connect to /ws/room (no token in the URL).
+ *   2. Server sends {"type": "auth_required"}.
+ *   3. Client sends {"type": "auth", "token": "<jwt>"}.
+ *   4. Server replies with {"type": "auth_success"} or closes with code 4001.
  */
 import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL, DEFAULT_RADIUS, LOCATION_UPDATE_INTERVAL_MS } from '@/utils/constants';
@@ -16,7 +22,10 @@ export type WsEventType =
   | 'nearby_count_changed'
   | 'ping'
   | 'connected'
-  | 'disconnected';
+  | 'disconnected'
+  | 'auth_required'
+  | 'auth_success'
+  | 'error';
 
 export interface WsEvent<T = unknown> {
   type: WsEventType;
@@ -50,14 +59,13 @@ class WebSocketService {
     if (latitude !== undefined) this.currentLat = latitude;
     if (longitude !== undefined) this.currentLng = longitude;
 
-    const token = await SecureStore.getItemAsync('auth_token');
-    if (!token) return;
-
-    const params = new URLSearchParams({ token });
+    // Build URL without token — auth happens via message handshake
+    const params = new URLSearchParams();
     if (this.currentLat !== null) params.set('latitude', String(this.currentLat));
     if (this.currentLng !== null) params.set('longitude', String(this.currentLng));
 
-    const url = `${WS_BASE_URL}/ws/room?${params.toString()}`;
+    const paramStr = params.toString();
+    const url = `${WS_BASE_URL}/ws/room${paramStr ? '?' + paramStr : ''}`;
 
     try {
       this.ws = new WebSocket(url);
@@ -69,16 +77,35 @@ class WebSocketService {
     this.ws.onopen = () => {
       this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
       this._emit({ type: 'connected' });
-      this._startLocationUpdates();
     };
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = async (event) => {
       try {
         const parsed: WsEvent = JSON.parse(event.data as string);
+
+        if (parsed.type === 'auth_required') {
+          // Send JWT token as a message instead of a query parameter
+          const token = await SecureStore.getItemAsync('auth_token');
+          if (token) {
+            this._send({ type: 'auth', token });
+          } else {
+            // No token available — disconnect and let the user re-authenticate
+            this.disconnect();
+          }
+          return;
+        }
+
+        if (parsed.type === 'auth_success') {
+          // Authentication succeeded — start periodic location updates
+          this._startLocationUpdates();
+          return;
+        }
+
         if (parsed.type === 'ping') {
           this._send({ type: 'pong' });
           return;
         }
+
         this._emit(parsed);
       } catch {
         // ignore malformed frames

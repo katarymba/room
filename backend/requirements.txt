@@ -13,3 +13,7 @@ shapely==2.0.2
 python-dotenv==1.0.0
 pytest==7.4.3
 httpx==0.25.1
+# Production extras (optional — install as needed)
+redis==5.0.1
+stripe==7.0.0
+sentry-sdk[fastapi]==1.40.0
