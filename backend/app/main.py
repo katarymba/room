@@ -1,8 +1,9 @@
 """FastAPI application entry point."""
 import logging
 import os
+import time
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -11,6 +12,12 @@ from app.routers import websocket as ws_router
 from app.websocket.manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
+
+# ── Structured logging setup ──────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.DEBUG if settings.DEBUG else logging.INFO,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}',
+)
 
 # ── Sentry (optional) ─────────────────────────────────────────────────────────
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "")
@@ -42,13 +49,32 @@ app = FastAPI(
 app.state.ws_manager = ConnectionManager()
 
 # Configure CORS
+# In production, restrict origins; in development allow all configured origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next) -> Response:
+    """Log all requests and responses, including errors."""
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = int((time.time() - start) * 1000)
+    status_code = response.status_code
+    log_fn = logger.warning if status_code >= 400 else logger.info
+    log_fn(
+        "method=%s path=%s status=%d duration_ms=%d",
+        request.method,
+        request.url.path,
+        status_code,
+        duration_ms,
+    )
+    return response
 
 # Register routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])

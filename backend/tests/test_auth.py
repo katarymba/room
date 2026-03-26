@@ -6,6 +6,8 @@ from jose import jwt
 import os
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests-only-32chars!")
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
+os.environ.setdefault("POSTGRES_PASSWORD", "test-password-for-unit-tests-only")
+os.environ.setdefault("DEBUG", "true")
 
 from app.services.auth import create_access_token, decode_token, decode_access_token
 from app.config import settings

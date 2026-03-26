@@ -109,6 +109,17 @@ async def post_room_message(
             },
         )
 
+    # ── Short-window anti-spam rate limit ─────────────────────────────────────
+    spam_allowed, _ = check_rate_limit(str(current_user.id), user_tier, "messages_per_10s")
+    if not spam_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "You are sending messages too fast. Please slow down.",
+            },
+        )
+
     point = from_shape(Point(message_data.longitude, message_data.latitude), srid=4326)
     message = Message(
         user_id=current_user.id,
@@ -167,6 +178,17 @@ async def add_reaction(
             detail={
                 "code": "RATE_LIMIT_EXCEEDED",
                 "message": "Reaction limit reached. Please try again later.",
+            },
+        )
+
+    # ── Short-window anti-spam rate limit ─────────────────────────────────────
+    spam_allowed, _ = check_rate_limit(str(current_user.id), user_tier, "reactions_per_10s")
+    if not spam_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "You are reacting too fast. Please slow down.",
             },
         )
 
