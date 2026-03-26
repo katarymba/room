@@ -1,5 +1,6 @@
 """Room router — nearby users and messages endpoints."""
 import asyncio
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from app.schemas.reaction import ReactionCreate, ReactionResponse
 from app.services.auth import get_current_user
 from app.services.bot_messages import generate_fake_messages
 from app.services.geo import get_nearby_messages, get_nearby_user_count
+from app.services.rate_limiter import check_rate_limit
 from app.services.room_service import check_author_reveal
 
 router = APIRouter()
@@ -94,6 +96,19 @@ async def post_room_message(
     from geoalchemy2.shape import from_shape
     from shapely.geometry import Point
 
+    # ── Freemium rate limit ───────────────────────────────────────────────────
+    user_tier = current_user.tier or "free"
+    allowed, remaining = check_rate_limit(str(current_user.id), user_tier, "messages_per_day")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Daily message limit reached. Upgrade to Premium for unlimited messages!",
+                "paywall": True,
+            },
+        )
+
     point = from_shape(Point(message_data.longitude, message_data.latitude), srid=4326)
     message = Message(
         user_id=current_user.id,
@@ -142,6 +157,18 @@ async def add_reaction(
     message = db.query(Message).filter(Message.id == reaction_data.message_id).first()
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    # ── Reaction rate limit ───────────────────────────────────────────────────
+    user_tier = current_user.tier or "free"
+    allowed, _ = check_rate_limit(str(current_user.id), user_tier, "reactions_per_hour")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Reaction limit reached. Please try again later.",
+            },
+        )
 
     # Silently ignore reactions on bot messages — they have no DB record.
     # (Bot message UUIDs are random and won't match any DB row, so the 404
