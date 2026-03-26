@@ -108,7 +108,7 @@ async def subscribe(
         checkout_url = create_checkout_session(
             user_id=user_id,
             plan=plan,
-            success_url=str(request.base_url) + "api/subscription/status",
+            success_url=f"{request.base_url}api/subscription/status",
             cancel_url=str(request.base_url),
         )
         if checkout_url is None:

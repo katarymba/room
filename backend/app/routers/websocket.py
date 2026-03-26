@@ -26,7 +26,7 @@ router = APIRouter()
 
 # The global manager is injected from main.py via app.state
 _PING_INTERVAL = 30  # seconds
-_AUTH_TIMEOUT = 10   # seconds to wait for the auth message
+_AUTH_TIMEOUT = 5    # seconds to wait for the auth message
 
 
 async def _get_manager(websocket: WebSocket) -> ConnectionManager:

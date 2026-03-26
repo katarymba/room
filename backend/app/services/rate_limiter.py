@@ -2,7 +2,7 @@
 
 Limits enforced:
   - Free users: 20 messages/day, 100 reactions/hour, 10 connections/hour
-  - Premium users: unlimited messages, 1 000 reactions/hour, 100 connections/hour
+  - Premium users: unlimited messages, 1000 reactions/hour, 100 connections/hour
 """
 import time
 import logging

@@ -9,7 +9,7 @@ import hmac
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -157,10 +157,9 @@ def _activate_premium(db, user_id: str, months: int = 1) -> None:
     if not user:
         return
     user.tier = "premium"
-    user.subscription_expires_at = datetime.utcnow() + timedelta(days=30 * months)
+    user.subscription_expires_at = datetime.now(timezone.utc) + timedelta(days=30 * months)
     db.commit()
     logger.info("User %s upgraded to premium (expires %s)", user_id, user.subscription_expires_at)
-
 
 def _deactivate_premium(db, user_id: str) -> None:
     from app.models.user import User

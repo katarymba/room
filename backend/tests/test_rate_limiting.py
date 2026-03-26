@@ -97,7 +97,7 @@ class TestPremiumUserMessageLimit:
 
 
 class TestPremiumUserReactionLimit:
-    """Premium users have 1 000 reactions/hour."""
+    """Premium users have 1000 reactions/hour."""
 
     def setup_method(self):
         self.user_id = "test-premium-react-user"
