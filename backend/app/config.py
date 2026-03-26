@@ -4,7 +4,14 @@ from pydantic import field_validator
 from typing import Optional
 
 
-_DEFAULT_SECRET_KEY = "change-me-in-production-use-long-random-string"
+# Patterns that indicate a placeholder or weak secret (case-insensitive check)
+_WEAK_PATTERNS = ("changeme", "change_me", "change-me", "admin", "password", "secret", "1234")
+
+
+def _is_weak(value: str) -> bool:
+    """Return True if the value contains any known-weak pattern."""
+    lower = value.lower()
+    return any(pattern in lower for pattern in _WEAK_PATTERNS)
 
 
 class Settings(BaseSettings):
@@ -17,9 +24,10 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "postgresql://room_user:room_pass@localhost:5432/room_db"
+    POSTGRES_PASSWORD: Optional[str] = None
 
     # JWT
-    SECRET_KEY: str = _DEFAULT_SECRET_KEY
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
@@ -37,18 +45,35 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def validate_secret_key(cls, v: str, info) -> str:
-        """Prevent the application from starting with the default insecure key in production."""
-        # info.data may not contain DEBUG yet during validation order, so check directly
-        # We raise only when the placeholder is used; callers should always override this in prod.
-        if v == _DEFAULT_SECRET_KEY:
-            import os
-            debug = os.environ.get("DEBUG", "False").lower() in ("1", "true", "yes")
-            if not debug:
-                raise ValueError(
-                    "SECRET_KEY must be changed from the default value in production. "
-                    "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-                )
+    def validate_secret_key(cls, v: str) -> str:
+        """Refuse to start when SECRET_KEY is too short or uses a weak default."""
+        if len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters long. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        if _is_weak(v):
+            raise ValueError(
+                "SECRET_KEY must not use a weak or default value (e.g. changeme, admin, 1234). "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
+
+    @field_validator("POSTGRES_PASSWORD")
+    @classmethod
+    def validate_postgres_password(cls, v: Optional[str]) -> Optional[str]:
+        """Refuse to start when POSTGRES_PASSWORD is set but too short or weak."""
+        if v is None:
+            return v
+        if len(v) < 16:
+            raise ValueError(
+                "POSTGRES_PASSWORD must be at least 16 characters long."
+            )
+        if _is_weak(v):
+            raise ValueError(
+                "POSTGRES_PASSWORD must not use a weak or default value "
+                "(e.g. changeme, admin, password)."
+            )
         return v
 
     class Config:
