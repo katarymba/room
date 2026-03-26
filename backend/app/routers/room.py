@@ -1,6 +1,7 @@
 """Room router — nearby users and messages endpoints."""
 import asyncio
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import List, Optional
 from uuid import UUID
 
@@ -20,6 +21,8 @@ from app.services.rate_limiter import check_rate_limit
 from app.services.room_service import check_author_reveal
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # Supplement with bot messages when real messages fall below this threshold
 _MIN_MESSAGES = 3
@@ -96,7 +99,19 @@ async def post_room_message(
     from geoalchemy2.shape import from_shape
     from shapely.geometry import Point
 
-    # ── Freemium rate limit ───────────────────────────────────────────────────
+    # ── Short-window anti-spam rate limit (5 msgs / 10 sec) ──────────────────
+    allowed_short, _ = check_rate_limit(str(current_user.id), "any", "messages_per_10s")
+    if not allowed_short:
+        logger.warning("Message short-window rate limit exceeded for user %s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Too many messages. Please slow down.",
+            },
+        )
+
+    # ── Freemium daily rate limit ─────────────────────────────────────────────
     user_tier = current_user.tier or "free"
     allowed, remaining = check_rate_limit(str(current_user.id), user_tier, "messages_per_day")
     if not allowed:
@@ -106,6 +121,27 @@ async def post_room_message(
                 "code": "RATE_LIMIT_EXCEEDED",
                 "message": "Daily message limit reached. Upgrade to Premium for unlimited messages!",
                 "paywall": True,
+            },
+        )
+
+    # ── Anti-spam: duplicate message detection within 1 minute ───────────────
+    one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
+    duplicate = (
+        db.query(Message)
+        .filter(
+            Message.user_id == current_user.id,
+            Message.text == message_data.text,
+            Message.created_at >= one_minute_ago,
+        )
+        .first()
+    )
+    if duplicate:
+        logger.warning("Duplicate message attempt from user %s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "DUPLICATE_MESSAGE",
+                "message": "Duplicate message. Please wait before sending the same message again.",
             },
         )
 
@@ -157,6 +193,17 @@ async def add_reaction(
     message = db.query(Message).filter(Message.id == reaction_data.message_id).first()
     if not message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    # ── Short-window rate limit (10 reactions / 10 sec) ──────────────────────
+    allowed_short, _ = check_rate_limit(str(current_user.id), "any", "reactions_per_10s")
+    if not allowed_short:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Too many reactions. Please slow down.",
+            },
+        )
 
     # ── Reaction rate limit ───────────────────────────────────────────────────
     user_tier = current_user.tier or "free"

@@ -7,6 +7,10 @@ services:
     ports:
       - "5432:5432"   # Expose DB port for local tools (DBeaver, pgAdmin desktop)
 
+  redis:
+    ports:
+      - "6379:6379"   # Expose Redis port for local debugging
+
   backend:
     build:
       context: ./backend
@@ -15,4 +19,5 @@ services:
       - ./backend:/app   # Hot reload — changes reflected without rebuild
     environment:
       DEBUG: "true"
+      REDIS_URL: redis://redis:6379/0
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
