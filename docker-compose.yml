@@ -24,6 +24,22 @@ services:
       retries: 5
       start_period: 30s
 
+  redis:
+    image: redis:7-alpine
+    container_name: room_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - room_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -34,10 +50,13 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-room}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-room}
+      REDIS_URL: redis://redis:6379
     ports:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - room_network
@@ -66,3 +85,4 @@ networks:
 volumes:
   postgres_data:
   pgadmin_data:
+  redis_data:

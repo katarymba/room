@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     SMS_API_KEY: Optional[str] = None
     SMS_FROM_NUMBER: Optional[str] = None
 
+    # Redis (used by rate limiter and caching in production)
+    REDIS_URL: Optional[str] = None
+
+    # Rate limits
+    # Location updates: max requests per user per window
+    RATE_LIMIT_LOCATION_UPDATES: int = 1        # per minute
+    RATE_LIMIT_LOCATION_WINDOW_SECONDS: int = 60
+    # Free-tier message cap (per day)
+    FREE_DAILY_MESSAGE_LIMIT: int = 20
+
+    # WebSocket auth timeout (seconds to wait for the auth handshake)
+    WS_AUTH_TIMEOUT_SECONDS: float = 5.0
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str, info) -> str:

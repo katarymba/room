@@ -53,11 +53,7 @@ class WebSocketService {
     const token = await SecureStore.getItemAsync('auth_token');
     if (!token) return;
 
-    const params = new URLSearchParams({ token });
-    if (this.currentLat !== null) params.set('latitude', String(this.currentLat));
-    if (this.currentLng !== null) params.set('longitude', String(this.currentLng));
-
-    const url = `${WS_BASE_URL}/ws/room?${params.toString()}`;
+    const url = `${WS_BASE_URL}/ws/room`;
 
     try {
       this.ws = new WebSocket(url);
@@ -68,6 +64,14 @@ class WebSocketService {
 
     this.ws.onopen = () => {
       this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
+
+      // Send authentication as the very first message so the token is never
+      // exposed in the URL or server access logs.
+      const authPayload: Record<string, unknown> = { type: 'auth', token };
+      if (this.currentLat !== null) authPayload.latitude = this.currentLat;
+      if (this.currentLng !== null) authPayload.longitude = this.currentLng;
+      this._send(authPayload);
+
       this._emit({ type: 'connected' });
       this._startLocationUpdates();
     };

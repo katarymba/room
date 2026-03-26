@@ -39,8 +39,12 @@ class ConnectionManager:
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
     ) -> None:
-        """Accept a new WebSocket connection and register it."""
-        await websocket.accept()
+        """Register an already-accepted WebSocket connection.
+
+        The caller is responsible for calling ``websocket.accept()`` before
+        invoking this method so that authentication can happen after the
+        handshake but before any data is exchanged.
+        """
         self._connections[user_id] = (websocket, latitude, longitude, datetime.utcnow())
         logger.info("WS connected: user=%s  total=%d", user_id, len(self._connections))
 
