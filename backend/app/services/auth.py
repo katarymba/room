@@ -1,4 +1,5 @@
 """Authentication service — JWT token generation and validation."""
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -43,6 +44,62 @@ def decode_token(token: str) -> Optional[dict]:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
+
+
+def create_refresh_token(user_id: str, db: Session) -> str:
+    """Create a new refresh token, persist it in the DB and return the token string."""
+    from app.models.refresh_token import RefreshToken
+
+    token_value = secrets.token_urlsafe(64)
+    expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    refresh_token = RefreshToken(
+        user_id=user_id,
+        token=token_value,
+        expires_at=expires_at,
+    )
+    db.add(refresh_token)
+    db.commit()
+    return token_value
+
+
+def validate_refresh_token(token: str, db: Session) -> Optional[str]:
+    """Validate a refresh token and return the associated user_id, or None if invalid/expired."""
+    from app.models.refresh_token import RefreshToken
+
+    record = db.query(RefreshToken).filter(RefreshToken.token == token).first()
+    if record is None:
+        return None
+    if record.revoked:
+        return None
+    if record.expires_at < datetime.utcnow():
+        return None
+    return str(record.user_id)
+
+
+def revoke_refresh_token(token: str, db: Session) -> bool:
+    """Revoke a refresh token. Returns True if the token was found and revoked."""
+    from app.models.refresh_token import RefreshToken
+
+    record = db.query(RefreshToken).filter(RefreshToken.token == token).first()
+    if record is None:
+        return False
+    record.revoked = True
+    db.commit()
+    return True
+
+
+def revoke_all_user_refresh_tokens(user_id: str, db: Session) -> int:
+    """Revoke all active refresh tokens for a user. Returns the count revoked."""
+    from app.models.refresh_token import RefreshToken
+
+    count = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.user_id == user_id, RefreshToken.revoked == False)  # noqa: E712
+        .update({"revoked": True})
+    )
+    db.commit()
+    return count
 
 
 def get_current_user(

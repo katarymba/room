@@ -1,15 +1,24 @@
 """FastAPI application entry point."""
 import logging
+import logging.config
 import os
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.routers import auth, room, chat, location
 from app.routers import websocket as ws_router
 from app.websocket.manager import ConnectionManager
 
+# ── Structured logging ────────────────────────────────────────────────────────
+_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=_LOG_LEVEL,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}',
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 # ── Sentry (optional) ─────────────────────────────────────────────────────────
@@ -46,8 +55,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # Register routers
@@ -56,6 +65,20 @@ app.include_router(room.router, prefix="/api/room", tags=["Room"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(location.router, prefix="/api/location", tags=["Location"])
 app.include_router(ws_router.router, prefix="/ws", tags=["WebSocket"])
+
+
+@app.middleware("http")
+async def log_error_responses(request: Request, call_next):
+    """Log all 4xx and 5xx responses for observability."""
+    response = await call_next(request)
+    if response.status_code >= 400:
+        logger.warning(
+            "HTTP %s %s -> %d",
+            request.method,
+            request.url.path,
+            response.status_code,
+        )
+    return response
 
 
 @app.get("/", tags=["Health"])
